@@ -1,0 +1,6 @@
+{
+  "name": "noma",
+  "description": "Noma AIDR guardrails for Claude Code",
+  "version": "1.0.0",
+  "author": { "name": "Noma Security" }
+}
