@@ -20,6 +20,24 @@ fi
 
 INPUT=$(cat)
 
+# Add hostname and username to JSON payload (optional - fails gracefully)
+host_name=$(hostname 2>/dev/null) || host_name=""
+user_name=$(whoami 2>/dev/null) || user_name=""
+
+extra=""
+if [ -n "$host_name" ]; then
+  escaped_host=$(printf '%s' "$host_name" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  extra="\"hostname\":\"$escaped_host\""
+fi
+if [ -n "$user_name" ]; then
+  escaped_user=$(printf '%s' "$user_name" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  [ -n "$extra" ] && extra="$extra,"
+  extra="${extra}\"username\":\"$escaped_user\""
+fi
+if [ -n "$extra" ]; then
+  INPUT="${INPUT%\}},$extra}"
+fi
+
 RESPONSE=$(curl -fsS --max-time 10 \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${NOMA_API_KEY}" \
