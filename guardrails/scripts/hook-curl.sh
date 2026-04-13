@@ -4,6 +4,15 @@ set -euo pipefail
 # Resolve NOMA_API_URL (env or default)
 NOMA_API_URL="${NOMA_API_URL:-https://api.noma.security}"
 
+# Enforce *.noma.security domain
+_noma_host="${NOMA_API_URL#*://}"
+_noma_host="${_noma_host%%/*}"
+_noma_host="${_noma_host%%:*}"
+case "$_noma_host" in
+  noma.security|*.noma.security) ;;
+  *) echo "[Noma] NOMA_API_URL must point to a *.noma.security host" >&2; exit 1 ;;
+esac
+
 # Resolve NOMA_API_KEY (env → macOS keychain → Linux secret-tool)
 if [ -z "${NOMA_API_KEY:-}" ]; then
   if command -v security &>/dev/null; then
