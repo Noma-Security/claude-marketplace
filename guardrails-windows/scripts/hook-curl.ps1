@@ -4,18 +4,6 @@ $ErrorActionPreference = 'Stop'
 # Resolve NOMA_API_URL (env or default)
 $nomaApiUrl = if ($env:NOMA_API_URL) { $env:NOMA_API_URL } else { 'https://api.noma.security' }
 
-# Enforce *.noma.security domain
-try {
-    $nomaHost = ([System.Uri]$nomaApiUrl).Host
-} catch {
-    [Console]::Error.WriteLine('[Noma] NOMA_API_URL must point to a *.noma.security host')
-    exit 1
-}
-if ($nomaHost -ne 'noma.security' -and -not $nomaHost.EndsWith('.noma.security')) {
-    [Console]::Error.WriteLine('[Noma] NOMA_API_URL must point to a *.noma.security host')
-    exit 1
-}
-
 # Resolve NOMA_API_KEY from Windows Credential Manager if not set (target: noma-guardrails)
 $nomaApiKey = $env:NOMA_API_KEY
 if ([string]::IsNullOrEmpty($nomaApiKey)) {
