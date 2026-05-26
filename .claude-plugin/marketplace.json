@@ -8,6 +8,11 @@
       "name": "guardrails",
       "source": "./guardrails",
       "version": "1.0.2"
+    },
+    {
+      "name": "guardrails-windows",
+      "source": "./guardrails-windows",
+      "version": "1.0.0"
     }
   ]
 }
