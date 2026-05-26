@@ -16,7 +16,7 @@ if ($nomaHost -ne 'noma.security' -and -not $nomaHost.EndsWith('.noma.security')
     exit 1
 }
 
-# Resolve NOMA_API_KEY from Windows Credential Manager if not set (target: noma-claude-guardrails)
+# Resolve NOMA_API_KEY from Windows Credential Manager if not set (target: noma-guardrails)
 $nomaApiKey = $env:NOMA_API_KEY
 if ([string]::IsNullOrEmpty($nomaApiKey)) {
     try {
@@ -50,7 +50,7 @@ public class CredManager {
         if (-not ('CredManager' -as [type])) {
             Add-Type -TypeDefinition $credManagerCode -ErrorAction SilentlyContinue
         }
-        $nomaApiKey = [CredManager]::Read('noma-claude-guardrails')
+        $nomaApiKey = [CredManager]::Read('noma-guardrails')
     } catch {}
 }
 
