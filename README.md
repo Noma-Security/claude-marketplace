@@ -19,6 +19,9 @@ With Claude Code Hooks enabled, Noma acts as a security gatekeeper for the follo
 
 - **Claude Code v2.0.12+**: Ensure you are running a supported version of the CLI
 - **Noma API Key**: Request an API Key for this plugin from your Noma Technical Account manager (Note: This is not an API Key that you create within the Noma Console)
+- **Supported OS**: macOS, Linux, or Windows
+  - **macOS / Linux**: requires `bash` and `curl` (both preinstalled on macOS; available by default on most Linux distributions)
+  - **Windows**: requires Windows PowerShell 5.1 or later (preinstalled on Windows 10 / 11)
 
 ## Installation
 
@@ -30,13 +33,28 @@ Add the Noma marketplace to your Claude Code instance:
 claude plugin marketplace add https://github.com/Noma-Security/claude-marketplace
 ```
 
-### Step 2: Install the Guardrails Plugin
+### Step 2: Install the Guardrails Plugin for Your OS
 
-Install the specific Noma guardrails hook:
+The Noma marketplace ships **two plugins** — choose the one matching your operating system. **Do not install both** on the same machine; they would double-fire every hook event and produce duplicate inferences in the Noma Console.
+
+| Plugin | OS | Runtime | Hook Script |
+|---|---|---|---|
+| `guardrails` | macOS, Linux | bash + curl | `hook-curl.sh` |
+| `guardrails-windows` | Windows | PowerShell 5.1+ | `hook-curl.ps1` |
+
+#### macOS / Linux
 
 ```bash
 claude plugin install guardrails@noma-marketplace
 ```
+
+#### Windows
+
+```bash
+claude plugin install guardrails-windows@noma-marketplace
+```
+
+Both plugins implement the same protection model and connect to the same Noma API endpoints — only the runtime and credential-storage mechanism differ.
 
 ## Configuration
 
@@ -61,6 +79,47 @@ Example settings.json structure:
   "NOMA_API_KEY": "your-secret-api-key"
 }
 ```
+
+### Option C: Operating System Credential Store (Most Secure Local)
+
+If `NOMA_API_KEY` is not set via env var or `settings.json`, the hook scripts will look it up from your operating system's built-in credential store. The key is encrypted at rest by the OS and bound to your user account.
+
+#### macOS — Keychain
+
+Store the key once:
+
+```bash
+security add-generic-password -s "noma-guardrails" -a "$USER" -w "your-secret-api-key"
+```
+
+The `guardrails` plugin retrieves it via `security find-generic-password` at hook fire time.
+
+#### Linux — libsecret / GNOME Keyring
+
+Requires `secret-tool` (package `libsecret-tools` on Debian/Ubuntu, `libsecret` on Fedora):
+
+```bash
+secret-tool store --label="Noma Guardrails" service noma-guardrails username "$USER"
+# secret-tool will prompt for the API key
+```
+
+The `guardrails` plugin retrieves it via `secret-tool lookup` at hook fire time.
+
+#### Windows — Credential Manager
+
+Store the key via `cmdkey` (run from PowerShell so `$env:USERNAME` expands to your Windows login):
+
+```powershell
+cmdkey /generic:noma-guardrails /user:$env:USERNAME /pass:your-secret-api-key
+```
+
+Or via the GUI (Control Panel → User Accounts → Credential Manager → Windows Credentials → Add a generic credential):
+
+- **Internet or network address**: `noma-guardrails`
+- **User name**: your Windows username (the script doesn't filter by this field — only the password is read — but using your real login keeps the entry recognizable in the Credential Manager UI)
+- **Password**: your Noma API key
+
+The `guardrails-windows` plugin retrieves it via the Windows `CredRead` API at hook fire time, looking up only by the target name `noma-guardrails`. The credential is DPAPI-encrypted by Windows and only accessible to the same user account on the same machine.
 
 ## Activation
 
@@ -92,9 +151,30 @@ Look for Debug mode indicators and status bar labels to confirm protection is ac
 
 ### Hooks are not firing
 
-- **Check Plugin Status**: Run `claude plugin list` to ensure `guardrails@noma-marketplace` is listed and active
+- **Check Plugin Status**: Run `claude plugin list` to ensure `guardrails@noma-marketplace` (macOS / Linux) or `guardrails-windows@noma-marketplace` (Windows) is listed and active
 - **Restart or Reload**: Always run `/reload-plugins` after making changes to your plugin configuration. Restart Claude after every environment variable change
+- **Wrong plugin for OS**: If you installed `guardrails` on Windows or `guardrails-windows` on macOS / Linux, the hook script will fail to launch (missing `bash` or `powershell.exe` respectively). Uninstall the wrong plugin and install the one matching your OS
 - **Note**: Changes in the team panel may take a few minutes to be applied
+
+### PowerShell execution policy errors (Windows only)
+
+If you see errors like `File ...hook-curl.ps1 cannot be loaded because running scripts is disabled on this system`:
+
+- Confirm the plugin is `guardrails-windows`, not `guardrails`
+- The hook config invokes PowerShell with `-ExecutionPolicy Bypass`, which should override any system policy for the hook process only. If the error persists, your organization may enforce execution policy via Group Policy (`MachinePolicy` scope), which `-ExecutionPolicy Bypass` cannot override. Contact your IT administrator to allow `guardrails-windows` hook scripts, or set `NOMA_API_KEY` via env var / `settings.json` and verify the script is reachable
+
+### NOMA_API_KEY not found
+
+The hook scripts look up the key in this order — first match wins:
+
+1. Environment variable `NOMA_API_KEY`
+2. `~/.claude/settings.json` (`NOMA_API_KEY` field)
+3. OS credential store:
+   - macOS: Keychain entry with service `noma-guardrails`
+   - Linux: libsecret entry with service `noma-guardrails`
+   - Windows: Credential Manager target `noma-guardrails`
+
+If none are configured, hooks will exit with `NOMA_API_KEY not found...`. Use one of the methods in the [Configuration](#configuration) section above.
 
 ### Managed settings are not appearing
 
