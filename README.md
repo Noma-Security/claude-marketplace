@@ -12,6 +12,7 @@ With Claude Code Hooks enabled, Noma acts as a security gatekeeper for the follo
 
 - **Shell execution**: Prevent unauthorized terminal commands or malicious script injections
 - **MCP tool execution**: Governs Model Context Protocol interactions and unauthorized tool use
+- **MCP server inventory** (macOS / Linux): On every prompt, sends the MCP server configuration files as separate per-scope artifacts (local, project, user, plugin, managed) plus the enable/disable lists; the merged per-session inventory is reconstructed by Noma server-side, and mid-session changes (plugin installs, `/reload-plugins`, `claude mcp add`) are picked up by the next prompt. Only server identity fields (`type`, `url`, `command`, `args`) are sent per server, with secret-looking values masked — `env`, `headers`, and all other fields never leave your machine
 - **File reads**: Protects sensitive local data (e.g., `.env` files, SSH keys) from being indexed or sent to the LLM
 - **User prompt submission**: Scans and filters sensitive data, PCI, PII, PHI before it leaves your local environment
 
@@ -20,7 +21,7 @@ With Claude Code Hooks enabled, Noma acts as a security gatekeeper for the follo
 - **Claude Code v2.0.12+**: Ensure you are running a supported version of the CLI
 - **Noma API Key**: Request an API Key for this plugin from your Noma Technical Account manager (Note: This is not an API Key that you create within the Noma Console)
 - **Supported OS**: macOS, Linux, or Windows
-  - **macOS / Linux**: requires `bash` and `curl` (both preinstalled on macOS; available by default on most Linux distributions)
+  - **macOS / Linux**: requires `bash` and `curl` (both preinstalled on macOS; available by default on most Linux distributions). The MCP server inventory additionally uses `jq` (preinstalled on macOS 15+); if `jq` is missing, only that feature is skipped
   - **Windows**: requires Windows PowerShell 5.1 or later (preinstalled on Windows 10 / 11)
 
 ## Installation
@@ -37,9 +38,9 @@ claude plugin marketplace add https://github.com/Noma-Security/claude-marketplac
 
 The Noma marketplace ships **two plugins** — choose the one matching your operating system. **Do not install both** on the same machine; they would double-fire every hook event and produce duplicate inferences in the Noma Console.
 
-| Plugin | OS | Runtime | Hook Script |
+| Plugin | OS | Runtime | Hook Scripts |
 |---|---|---|---|
-| `guardrails` | macOS, Linux | bash + curl | `hook-curl.sh` |
+| `guardrails` | macOS, Linux | bash + curl | `hook-curl.sh`, `hook-mcp-inventory.sh` |
 | `guardrails-windows` | Windows | PowerShell 5.1+ | `hook-curl.ps1` |
 
 #### macOS / Linux
@@ -188,6 +189,17 @@ If none are configured, hooks will exit with `NOMA_API_KEY not found...`. Use on
 ## Beta Status
 
 > **Note**: Claude Code Hooks is currently in **Beta** status. Beta status means Noma is actively researching, iterating, and developing this feature. Based on feedback, market innovation, and technical and commercial viability, Noma may decide to suspend further work on this feature. To gain early access to a beta feature initiative, contact your Noma Technical Account Manager.
+
+## Development
+
+The bash hook scripts are covered by a [bats-core](https://github.com/bats-core/bats-core) test suite that runs hermetically against a sandbox `HOME` (no network, no access to your real Claude Code config):
+
+```bash
+brew install bats-core   # macOS; on Linux: apt-get install bats
+bats tests/
+```
+
+CI (GitHub Actions) runs the suite on Ubuntu and macOS — the macOS job uses the stock `/bin/bash` 3.2 that real plugin users run — plus `shellcheck` on all scripts.
 
 ## Support
 

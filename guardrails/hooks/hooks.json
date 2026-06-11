@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hook-curl.sh",
-            "timeout": 15
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hook-mcp-inventory.sh",
+            "timeout": 20
           }
         ]
       }

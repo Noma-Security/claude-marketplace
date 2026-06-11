@@ -1,0 +1,199 @@
+#!/usr/bin/env bats
+# hook-mcp-inventory.sh — per-file MCP artifact collection on UserPromptSubmit
+
+load test_helper
+
+# --- sources ----------------------------------------------------------------
+
+@test "reports user servers from ~/.claude.json mcpServers" {
+  write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}},"numStartups":42}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field user claude_json '.content.mcpServers.alpha.url')" = "https://alpha.example" ]
+  [ "$(artifact_field user claude_json '.path')" = "$TEST_HOME/.claude.json" ]
+}
+
+@test "reports user servers from the ~/.claude.json servers variant" {
+  write_home_claude_json '{"servers":{"beta":{"type":"http","url":"https://beta.example"}}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field user claude_json '.content.mcpServers.beta.url')" = "https://beta.example" ]
+}
+
+@test "never applies the bare-map heuristic to ~/.claude.json top level" {
+  # an unrelated top-level object that merely looks like a server config
+  write_home_claude_json '{"cachedDynamicConfigs":{"type":"remote","url":"https://internal.example"}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_count user claude_json)" = "0" ]
+  refute_payload_contains "internal.example"
+}
+
+@test "reports local scope from the projects entry with only its MCP keys" {
+  write_home_claude_json "$(jq -nc --arg p "$TEST_PROJECT" '{projects: {($p): {
+    mcpServers: {gh: {type: "stdio", command: "docker", args: ["run", "-i"]}},
+    enabledMcpjsonServers: ["gh"],
+    lastSessionFirstPrompt: "SUPER PRIVATE PROMPT",
+    allowedTools: ["Bash(rm:*)"]
+  }}}')"
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field local claude_json '.content.mcpServers.gh.command')" = "docker" ]
+  [ "$(artifact_field local claude_json '.content.enabledMcpjsonServers | join(",")')" = "gh" ]
+  refute_payload_contains "SUPER PRIVATE PROMPT"
+  refute_payload_contains "allowedTools"
+}
+
+@test "reports the standalone ~/.claude/mcp.json (servers key, normalized)" {
+  write_user_mcp_json '{"servers":{"logger":{"type":"http","url":"https://logger.example"}}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field user claude_mcp_json '.content.mcpServers.logger.url')" = "https://logger.example" ]
+  [ "$(artifact_field user claude_mcp_json '.path')" = "$TEST_HOME/.claude/mcp.json" ]
+}
+
+@test "reports the project .mcp.json" {
+  write_project_mcp_json '{"mcpServers":{"proj":{"type":"stdio","command":"npx","args":["-y","proj-server"]}}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field project claude_mcp_json '.content.mcpServers.proj.command')" = "npx" ]
+  [ "$(artifact_field project claude_mcp_json '.path')" = "$TEST_PROJECT/.mcp.json" ]
+}
+
+@test "reports plugin .mcp.json in both wrapped and bare shapes" {
+  add_plugin wrapped .mcp.json '{"mcpServers":{"w":{"type":"http","url":"https://w.example"}}}'
+  add_plugin bare .mcp.json '{"b":{"type":"http","url":"https://b.example"}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_count plugin claude_mcp_json)" = "2" ]
+  [ "$(payload_field '[.mcp_artifacts[] | select(.scope=="plugin") | .content.mcpServers | keys[]] | sort | join(",")')" = "b,w" ]
+}
+
+@test "reports plugin manifest mcpServers and skips manifests without them" {
+  add_plugin with-servers .claude-plugin/plugin.json '{"name":"with-servers","mcpServers":{"m":{"type":"http","url":"https://m.example"}}}'
+  add_plugin without-servers .claude-plugin/plugin.json '{"name":"without-servers","version":"1.0.0"}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_count plugin claude_mcp_json)" = "1" ]
+  [ "$(artifact_field plugin claude_mcp_json '.content.mcpServers.m.url')" = "https://m.example" ]
+}
+
+@test "excludes local-scoped plugins installed for a different project" {
+  add_plugin other-project .mcp.json '{"mcpServers":{"other":{"type":"http","url":"https://other.example"}}}' local /somewhere/else
+  add_plugin this-project .mcp.json '{"mcpServers":{"mine":{"type":"http","url":"https://mine.example"}}}' local "$TEST_PROJECT"
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_count plugin claude_mcp_json)" = "1" ]
+  refute_payload_contains "other.example"
+}
+
+@test "reports managed-mcp.json when present (requires sudo, auto-skips)" {
+  if [ -e /etc/claude-code/managed-mcp.json ]; then
+    skip "real managed-mcp.json present on this machine"
+  fi
+  if [ -e "/Library/Application Support/ClaudeCode/managed-mcp.json" ]; then
+    skip "real managed config present on this machine"
+  fi
+  if ! sudo -n true 2>/dev/null; then
+    skip "needs passwordless sudo for /etc/claude-code (runs in CI)"
+  fi
+  sudo mkdir -p /etc/claude-code
+  printf '%s' '{"mcpServers":{"corp":{"type":"http","url":"https://mcp.corp.example"}}}' | sudo tee /etc/claude-code/managed-mcp.json > /dev/null
+  MANAGED_MCP_CREATED=1
+
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field managed claude_managed_mcp_json '.content.mcpServers.corp.url')" = "https://mcp.corp.example" ]
+}
+
+# --- settings lists ---------------------------------------------------------
+
+@test "reports enable/disable lists from settings files, non-empty arrays only" {
+  write_settings "$TEST_HOME/.claude/settings.json" '{"disabledMcpjsonServers":["dropped"],"enabledMcpjsonServers":null,"env":{"FOO":"bar"}}'
+  write_settings "$TEST_PROJECT/.claude/settings.json" '{"enabledMcpjsonServers":["kept"]}'
+  write_settings "$TEST_PROJECT/.claude/settings.local.json" '{"enabledMcpjsonServers":[],"disabledMcpjsonServers":[]}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field user claude_settings_json '.content | keys | join(",")')" = "disabledMcpjsonServers" ]
+  [ "$(artifact_field project claude_settings_json '.content.enabledMcpjsonServers | join(",")')" = "kept" ]
+  # empty arrays produce no artifact at all
+  [ "$(artifact_count local claude_settings_json)" = "0" ]
+  # settings env never leaves the machine
+  refute_payload_contains '"FOO"'
+}
+
+# --- privacy / masking ------------------------------------------------------
+
+@test "drops env and headers entirely, allowlisting only identity fields" {
+  write_project_mcp_json '{"mcpServers":{"gh":{
+    "type": "stdio", "command": "docker", "args": ["run"],
+    "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_11AAAAA0secretsecret"},
+    "headers": {"Authorization": "Bearer sk-deadbeefdeadbeef"},
+    "_meta": {"internal": true}
+  }}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field project claude_mcp_json '.content.mcpServers.gh | keys | sort | join(",")')" = "args,command,type" ]
+  refute_payload_contains '"env"'
+  refute_payload_contains '"headers"'
+  refute_payload_contains "github_pat_"
+  refute_payload_contains "sk-deadbeef"
+  refute_payload_contains "_meta"
+}
+
+@test "masks secret-looking values inside url, command and args" {
+  write_project_mcp_json '{"mcpServers":{"evil":{
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y", "some-server", "--api-key", "supersecret123", "API_TOKEN=abc123def", "https://user:hunter2@x.example/p"],
+    "url": "https://admin:letmein99@evil.example/mcp"
+  }}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field project claude_mcp_json '.content.mcpServers.evil.args[3]')" = "***REDACTED***" ]
+  refute_payload_contains "supersecret123"
+  refute_payload_contains "hunter2"
+  refute_payload_contains "abc123def"
+  refute_payload_contains "letmein99"
+}
+
+# --- payload shape & fallbacks ----------------------------------------------
+
+@test "preserves the original event and appends artifacts plus host identity" {
+  write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(payload_field '.prompt')" = "hi" ]
+  [ "$(payload_field '.session_id')" = "test-session" ]
+  [ "$(payload_field '.hook_event_name')" = "UserPromptSubmit" ]
+  [ "$(payload_field '.hostname | length > 0')" = "true" ]
+  [ "$(payload_field '.username | length > 0')" = "true" ]
+  [ "$(payload_field '.mcp_artifacts | type')" = "array" ]
+}
+
+@test "empty sandbox yields an empty artifact list without crashing" {
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(payload_field '.mcp_artifacts')" = "[]" ]
+  [ "$(payload_field '.prompt')" = "hi" ]
+}
+
+@test "malformed stdin degrades to a fallback envelope" {
+  run_hook hook-mcp-inventory.sh 'this is not json {'
+  [ "$status" -eq 0 ]
+  [ "$(payload_field '.hook_event_name')" = "UserPromptSubmit" ]
+  [ "$(payload_field '.cwd | length > 0')" = "true" ]
+  [ "$(payload_field '.mcp_artifacts | type')" = "array" ]
+}
+
+@test "missing jq falls back to plain event forwarding with a stderr note" {
+  write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
+  run_hook_sandboxed hook-mcp-inventory.sh "$(default_event)" cat sed dirname hostname whoami
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"jq not found"* ]]
+  local payload
+  payload="$(printf '%s' "$output" | tail -n 1)"
+  [ "$(printf '%s' "$payload" | jq -r '.prompt')" = "hi" ]
+  [ "$(printf '%s' "$payload" | jq -r 'has("mcp_artifacts")')" = "false" ]
+  [ "$(printf '%s' "$payload" | jq -r '.hostname | length > 0')" = "true" ]
+}
