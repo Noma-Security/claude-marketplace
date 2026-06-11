@@ -34,7 +34,7 @@ load test_helper
   refute_payload_contains "internal.example"
 }
 
-@test "reports local scope from the projects entry with only its MCP keys" {
+@test "reports local scope from the projects entry with only its server map" {
   require_osascript
   write_home_claude_json "$(jq -nc --arg p "$TEST_PROJECT" '{projects: {($p): {
     mcpServers: {gh: {type: "stdio", command: "docker", args: ["run", "-i"]}},
@@ -45,9 +45,11 @@ load test_helper
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
   [ "$(artifact_field local claude_json '.content.mcpServers.gh.command')" = "docker" ]
-  [ "$(artifact_field local claude_json '.content.enabledMcpjsonServers | join(",")')" = "gh" ]
+  # only the server map is extracted — no enable/disable lists, nothing else
+  [ "$(artifact_field local claude_json '.content | keys | join(",")')" = "mcpServers" ]
   refute_payload_contains "SUPER PRIVATE PROMPT"
   refute_payload_contains "allowedTools"
+  refute_payload_contains "enabledMcpjsonServers"
 }
 
 @test "reports the standalone ~/.claude/mcp.json (servers key, normalized)" {
@@ -118,20 +120,18 @@ load test_helper
   [ "$(artifact_field managed claude_managed_mcp_json '.content.mcpServers.corp.url')" = "https://mcp.corp.example" ]
 }
 
-# --- settings lists ---------------------------------------------------------
+# --- settings files ---------------------------------------------------------
 
-@test "reports enable/disable lists from settings files, non-empty arrays only" {
+@test "settings files are never read or reported, even when they hold MCP lists" {
   require_osascript
-  write_settings "$TEST_HOME/.claude/settings.json" '{"disabledMcpjsonServers":["dropped"],"enabledMcpjsonServers":null,"env":{"FOO":"bar"}}'
+  write_settings "$TEST_HOME/.claude/settings.json" '{"disabledMcpjsonServers":["dropped"],"env":{"FOO":"bar"}}'
   write_settings "$TEST_PROJECT/.claude/settings.json" '{"enabledMcpjsonServers":["kept"]}'
-  write_settings "$TEST_PROJECT/.claude/settings.local.json" '{"enabledMcpjsonServers":[],"disabledMcpjsonServers":[]}'
+  write_settings "$TEST_PROJECT/.claude/settings.local.json" '{"disabledMcpjsonServers":["x"]}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
-  [ "$(artifact_field user claude_settings_json '.content | keys | join(",")')" = "disabledMcpjsonServers" ]
-  [ "$(artifact_field project claude_settings_json '.content.enabledMcpjsonServers | join(",")')" = "kept" ]
-  # empty arrays produce no artifact at all
-  [ "$(artifact_count local claude_settings_json)" = "0" ]
-  # settings env never leaves the machine
+  [ "$(artifact_count '' claude_settings_json)" = "0" ]
+  refute_payload_contains "claude_settings_json"
+  refute_payload_contains "disabledMcpjsonServers"
   refute_payload_contains '"FOO"'
 }
 

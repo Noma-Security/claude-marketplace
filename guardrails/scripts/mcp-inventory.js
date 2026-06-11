@@ -102,15 +102,6 @@ function manifestContent(doc) {
   return wrapServers(cleanMap(servers));
 }
 
-function listsContent(doc) {
-  if (!isObject(doc)) return {};
-  var out = {};
-  ["enabledMcpjsonServers", "disabledMcpjsonServers"].forEach(function (key) {
-    if (Array.isArray(doc[key]) && doc[key].length > 0) out[key] = doc[key];
-  });
-  return out;
-}
-
 // --- filesystem (every failure degrades to null/{}) ---------------------------
 
 function readJSON(path) {
@@ -172,15 +163,12 @@ function run() {
       : isObject(claudeJson.servers) ? claudeJson.servers : {};
     addArtifact("user", "claude_json", claudeJsonPath, wrapServers(cleanMap(userServers)));
 
-    // Local scope: this project entry in ~/.claude.json — only its MCP keys;
+    // Local scope: this project entry in ~/.claude.json — only its server map;
     // the entry also holds prompts and metrics that must never be sent
     var projects = isObject(claudeJson.projects) ? claudeJson.projects : {};
     var entry = isObject(projects[cwd]) ? projects[cwd] : {};
     var localServers = isObject(entry.mcpServers) ? entry.mcpServers : {};
-    var localContent = wrapServers(cleanMap(localServers));
-    var entryLists = listsContent(entry);
-    for (var key in entryLists) localContent[key] = entryLists[key];
-    addArtifact("local", "claude_json", claudeJsonPath, localContent);
+    addArtifact("local", "claude_json", claudeJsonPath, wrapServers(cleanMap(localServers)));
   }
 
   // User scope: ~/.claude/mcp.json; project scope: <cwd>/.mcp.json
@@ -223,11 +211,6 @@ function run() {
       break;
     }
   }
-
-  // Enable/disable lists from settings files
-  addArtifact("user", "claude_settings_json", home + "/.claude/settings.json", listsContent(readJSON(home + "/.claude/settings.json")));
-  addArtifact("project", "claude_settings_json", cwd + "/.claude/settings.json", listsContent(readJSON(cwd + "/.claude/settings.json")));
-  addArtifact("local", "claude_settings_json", cwd + "/.claude/settings.local.json", listsContent(readJSON(cwd + "/.claude/settings.local.json")));
 
   // Same payload shape as before: full event + mcp_artifacts, or the fallback
   // envelope when stdin was not valid JSON
