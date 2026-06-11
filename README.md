@@ -12,7 +12,7 @@ With Claude Code Hooks enabled, Noma acts as a security gatekeeper for the follo
 
 - **Shell execution**: Prevent unauthorized terminal commands or malicious script injections
 - **MCP tool execution**: Governs Model Context Protocol interactions and unauthorized tool use
-- **MCP server inventory** (macOS / Linux): On every prompt, sends the MCP server configuration files as separate per-scope artifacts (local, project, user, plugin, managed) plus the enable/disable lists; the merged per-session inventory is reconstructed by Noma server-side, and mid-session changes (plugin installs, `/reload-plugins`, `claude mcp add`) are picked up by the next prompt. Only server identity fields (`type`, `url`, `command`, `args`) are sent per server, with secret-looking values masked — `env`, `headers`, and all other fields never leave your machine
+- **MCP server inventory** (macOS): On every prompt, sends the MCP server configuration files as separate per-scope artifacts (local, project, user, plugin, managed) plus the enable/disable lists; the merged per-session inventory is reconstructed by Noma server-side, and mid-session changes (plugin installs, `/reload-plugins`, `claude mcp add`) are picked up by the next prompt. Only server identity fields (`type`, `url`, `command`, `args`) are sent per server, with secret-looking values masked — `env`, `headers`, and all other fields never leave your machine. Built on `osascript`, which ships with every macOS — no extra dependencies; on Linux this feature is currently skipped (all other protections are unaffected)
 - **File reads**: Protects sensitive local data (e.g., `.env` files, SSH keys) from being indexed or sent to the LLM
 - **User prompt submission**: Scans and filters sensitive data, PCI, PII, PHI before it leaves your local environment
 
@@ -21,7 +21,7 @@ With Claude Code Hooks enabled, Noma acts as a security gatekeeper for the follo
 - **Claude Code v2.0.12+**: Ensure you are running a supported version of the CLI
 - **Noma API Key**: Request an API Key for this plugin from your Noma Technical Account manager (Note: This is not an API Key that you create within the Noma Console)
 - **Supported OS**: macOS, Linux, or Windows
-  - **macOS / Linux**: requires `bash` and `curl` (both preinstalled on macOS; available by default on most Linux distributions). The MCP server inventory additionally uses `jq` (preinstalled on macOS 15+); if `jq` is missing, only that feature is skipped
+  - **macOS / Linux**: requires `bash` and `curl` (both preinstalled on macOS; available by default on most Linux distributions). The MCP server inventory uses the built-in `osascript` (present on every macOS); on Linux only that feature is skipped
   - **Windows**: requires Windows PowerShell 5.1 or later (preinstalled on Windows 10 / 11)
 
 ## Installation
@@ -40,7 +40,7 @@ The Noma marketplace ships **two plugins** — choose the one matching your oper
 
 | Plugin | OS | Runtime | Hook Scripts |
 |---|---|---|---|
-| `guardrails` | macOS, Linux | bash + curl | `hook-curl.sh`, `hook-mcp-inventory.sh` |
+| `guardrails` | macOS, Linux | bash + curl | `hook-curl.sh`, `hook-mcp-inventory.sh` (+ `mcp-inventory.js` via macOS's built-in `osascript`) |
 | `guardrails-windows` | Windows | PowerShell 5.1+ | `hook-curl.ps1` |
 
 #### macOS / Linux
@@ -195,7 +195,7 @@ If none are configured, hooks will exit with `NOMA_API_KEY not found...`. Use on
 The bash hook scripts are covered by a [bats-core](https://github.com/bats-core/bats-core) test suite that runs hermetically against a sandbox `HOME` (no network, no access to your real Claude Code config):
 
 ```bash
-brew install bats-core   # macOS; on Linux: apt-get install bats
+brew install bats-core jq   # jq is used by test assertions only, never by the hooks
 bats tests/
 ```
 

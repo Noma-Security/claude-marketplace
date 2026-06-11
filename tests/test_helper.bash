@@ -30,6 +30,12 @@ teardown() {
   fi
 }
 
+# Skip tests that exercise the inventory builder where osascript is absent
+# (the inventory is macOS-only for now)
+require_osascript() {
+  command -v osascript &>/dev/null || skip "osascript not available (inventory is macOS-only)"
+}
+
 # --- running hooks ----------------------------------------------------------
 
 # run_hook <script-name> <event-json>

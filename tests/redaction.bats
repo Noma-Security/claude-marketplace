@@ -11,6 +11,7 @@ load test_helper
 # probe_args <json-array> — run the hook against a project .mcp.json whose
 # single server has the given args
 probe_args() {
+  require_osascript
   write_project_mcp_json "$(jq -nc --argjson a "$1" '{mcpServers: {probe: {type: "stdio", command: "npx", args: $a}}}')"
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -130,6 +131,7 @@ probe_arg() {
 # --- URLs ----------------------------------------------------------------------
 
 @test "masks URL userinfo keeping the scheme, in url field and args alike" {
+  require_osascript
   write_project_mcp_json '{"mcpServers":{"probe":{
     "type": "http",
     "url": "https://admin:letmein99@mcp.example/path",
@@ -157,6 +159,7 @@ probe_arg() {
 # --- field coverage --------------------------------------------------------------
 
 @test "sanitizes the command field, passes type through untouched" {
+  require_osascript
   write_project_mcp_json '{"mcpServers":{"probe":{
     "type": "stdio",
     "command": "API_TOKEN=cmdsecret77 ./start.sh"
@@ -179,6 +182,7 @@ probe_arg() {
 }
 
 @test "applies redaction in every artifact source, not just the project file" {
+  require_osascript
   write_home_claude_json "$(jq -nc --arg p "$TEST_PROJECT" '{
     mcpServers: {u: {type: "stdio", command: "npx", args: ["--token", "user-scope-leak"]}},
     projects: {($p): {mcpServers: {l: {type: "http", url: "https://a:local-scope-leak@h.example"}}}}

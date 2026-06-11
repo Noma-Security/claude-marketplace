@@ -1,11 +1,14 @@
 #!/usr/bin/env bats
-# hook-mcp-inventory.sh — per-file MCP artifact collection on UserPromptSubmit
+# hook-mcp-inventory.sh — per-file MCP artifact collection on UserPromptSubmit.
+# The inventory is built by mcp-inventory.js via osascript (JXA), so these
+# tests skip where osascript is absent (Linux); the fallback test runs everywhere.
 
 load test_helper
 
 # --- sources ----------------------------------------------------------------
 
 @test "reports user servers from ~/.claude.json mcpServers" {
+  require_osascript
   write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}},"numStartups":42}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -14,6 +17,7 @@ load test_helper
 }
 
 @test "reports user servers from the ~/.claude.json servers variant" {
+  require_osascript
   write_home_claude_json '{"servers":{"beta":{"type":"http","url":"https://beta.example"}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -21,6 +25,7 @@ load test_helper
 }
 
 @test "never applies the bare-map heuristic to ~/.claude.json top level" {
+  require_osascript
   # an unrelated top-level object that merely looks like a server config
   write_home_claude_json '{"cachedDynamicConfigs":{"type":"remote","url":"https://internal.example"}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -30,6 +35,7 @@ load test_helper
 }
 
 @test "reports local scope from the projects entry with only its MCP keys" {
+  require_osascript
   write_home_claude_json "$(jq -nc --arg p "$TEST_PROJECT" '{projects: {($p): {
     mcpServers: {gh: {type: "stdio", command: "docker", args: ["run", "-i"]}},
     enabledMcpjsonServers: ["gh"],
@@ -45,6 +51,7 @@ load test_helper
 }
 
 @test "reports the standalone ~/.claude/mcp.json (servers key, normalized)" {
+  require_osascript
   write_user_mcp_json '{"servers":{"logger":{"type":"http","url":"https://logger.example"}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -53,6 +60,7 @@ load test_helper
 }
 
 @test "reports the project .mcp.json" {
+  require_osascript
   write_project_mcp_json '{"mcpServers":{"proj":{"type":"stdio","command":"npx","args":["-y","proj-server"]}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -61,6 +69,7 @@ load test_helper
 }
 
 @test "reports plugin .mcp.json in both wrapped and bare shapes" {
+  require_osascript
   add_plugin wrapped .mcp.json '{"mcpServers":{"w":{"type":"http","url":"https://w.example"}}}'
   add_plugin bare .mcp.json '{"b":{"type":"http","url":"https://b.example"}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -70,6 +79,7 @@ load test_helper
 }
 
 @test "reports plugin manifest mcpServers and skips manifests without them" {
+  require_osascript
   add_plugin with-servers .claude-plugin/plugin.json '{"name":"with-servers","mcpServers":{"m":{"type":"http","url":"https://m.example"}}}'
   add_plugin without-servers .claude-plugin/plugin.json '{"name":"without-servers","version":"1.0.0"}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -79,6 +89,7 @@ load test_helper
 }
 
 @test "excludes local-scoped plugins installed for a different project" {
+  require_osascript
   add_plugin other-project .mcp.json '{"mcpServers":{"other":{"type":"http","url":"https://other.example"}}}' local /somewhere/else
   add_plugin this-project .mcp.json '{"mcpServers":{"mine":{"type":"http","url":"https://mine.example"}}}' local "$TEST_PROJECT"
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -88,6 +99,7 @@ load test_helper
 }
 
 @test "reports managed-mcp.json when present (requires sudo, auto-skips)" {
+  require_osascript
   if [ -e /etc/claude-code/managed-mcp.json ]; then
     skip "real managed-mcp.json present on this machine"
   fi
@@ -109,6 +121,7 @@ load test_helper
 # --- settings lists ---------------------------------------------------------
 
 @test "reports enable/disable lists from settings files, non-empty arrays only" {
+  require_osascript
   write_settings "$TEST_HOME/.claude/settings.json" '{"disabledMcpjsonServers":["dropped"],"enabledMcpjsonServers":null,"env":{"FOO":"bar"}}'
   write_settings "$TEST_PROJECT/.claude/settings.json" '{"enabledMcpjsonServers":["kept"]}'
   write_settings "$TEST_PROJECT/.claude/settings.local.json" '{"enabledMcpjsonServers":[],"disabledMcpjsonServers":[]}'
@@ -125,6 +138,7 @@ load test_helper
 # --- privacy / masking ------------------------------------------------------
 
 @test "drops env and headers entirely, allowlisting only identity fields" {
+  require_osascript
   write_project_mcp_json '{"mcpServers":{"gh":{
     "type": "stdio", "command": "docker", "args": ["run"],
     "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_11AAAAA0secretsecret"},
@@ -142,6 +156,7 @@ load test_helper
 }
 
 @test "masks secret-looking values inside url, command and args" {
+  require_osascript
   write_project_mcp_json '{"mcpServers":{"evil":{
     "type": "stdio",
     "command": "npx",
@@ -160,6 +175,7 @@ load test_helper
 # --- payload shape & fallbacks ----------------------------------------------
 
 @test "preserves the original event and appends artifacts plus host identity" {
+  require_osascript
   write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -172,6 +188,7 @@ load test_helper
 }
 
 @test "empty sandbox yields an empty artifact list without crashing" {
+  require_osascript
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
   [ "$(payload_field '.mcp_artifacts')" = "[]" ]
@@ -179,6 +196,7 @@ load test_helper
 }
 
 @test "malformed stdin degrades to a fallback envelope" {
+  require_osascript
   run_hook hook-mcp-inventory.sh 'this is not json {'
   [ "$status" -eq 0 ]
   [ "$(payload_field '.hook_event_name')" = "UserPromptSubmit" ]
@@ -186,14 +204,38 @@ load test_helper
   [ "$(payload_field '.mcp_artifacts | type')" = "array" ]
 }
 
-@test "missing jq falls back to plain event forwarding with a stderr note" {
+@test "inventory needs nothing beyond osascript and the base utilities" {
+  require_osascript
+  # PATH sandbox with osascript but deliberately no jq: full inventory expected
+  write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
+  run_hook_sandboxed hook-mcp-inventory.sh "$(default_event)" cat sed dirname hostname whoami osascript
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field user claude_json '.content.mcpServers.alpha.url')" = "https://alpha.example" ]
+}
+
+@test "osascript failure (missing mcp-inventory.js) falls back silently too" {
+  require_osascript
+  local dir
+  dir="$(mktemp -d -p "$TEST_HOME")"
+  cp "$SCRIPTS_DIR/hook-mcp-inventory.sh" "$SCRIPTS_DIR/common.sh" "$dir/"
+  run bash -c 'printf "%s" "$1" | HOME="$2" "$3" "$4"' _ \
+    "$(default_event)" "$TEST_HOME" "$TEST_SHELL_BIN" "$dir/hook-mcp-inventory.sh"
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | jq -e '.' > /dev/null
+  [[ "$output" != *"[Noma]"* ]]
+  [ "$(printf '%s' "$output" | jq -r '.prompt')" = "hi" ]
+  [ "$(printf '%s' "$output" | jq -r 'has("mcp_artifacts")')" = "false" ]
+}
+
+@test "without osascript falls back to plain event forwarding, completely silently" {
   write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
   run_hook_sandboxed hook-mcp-inventory.sh "$(default_event)" cat sed dirname hostname whoami
   [ "$status" -eq 0 ]
-  [[ "$output" == *"jq not found"* ]]
-  local payload
-  payload="$(printf '%s' "$output" | tail -n 1)"
-  [ "$(printf '%s' "$payload" | jq -r '.prompt')" = "hi" ]
-  [ "$(printf '%s' "$payload" | jq -r 'has("mcp_artifacts")')" = "false" ]
-  [ "$(printf '%s' "$payload" | jq -r '.hostname | length > 0')" = "true" ]
+  # the hook runs inside Claude Code where stderr surfaces in the UI on every
+  # prompt — the entire output (stdout+stderr) must be exactly the payload JSON
+  printf '%s' "$output" | jq -e '.' > /dev/null
+  [[ "$output" != *"[Noma]"* ]]
+  [ "$(printf '%s' "$output" | jq -r '.prompt')" = "hi" ]
+  [ "$(printf '%s' "$output" | jq -r 'has("mcp_artifacts")')" = "false" ]
+  [ "$(printf '%s' "$output" | jq -r '.hostname | length > 0')" = "true" ]
 }
