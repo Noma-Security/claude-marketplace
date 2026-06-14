@@ -97,9 +97,31 @@ function serverContent(doc) {
   return wrapServers(cleanMap(norm(doc)));
 }
 
-function manifestContent(doc) {
-  var servers = isObject(doc) && isObject(doc.mcpServers) ? doc.mcpServers : {};
-  return wrapServers(cleanMap(servers));
+// manifestArtifactContent returns the full plugin.json manifest verbatim, with
+// only its inline mcpServers (if any) allowlisted+sanitized like every other
+// MCP config — env/headers dropped, secret-looking values masked. The manifest
+// metadata (name/version/author/...) is benign and sent as-is.
+function manifestArtifactContent(doc) {
+  if (!isObject(doc)) return {};
+  var out = {};
+  for (var key in doc) {
+    if (key === "mcpServers") continue;
+    out[key] = doc[key];
+  }
+  if (isObject(doc.mcpServers)) {
+    var servers = cleanMap(doc.mcpServers);
+    if (Object.keys(servers).length > 0) out.mcpServers = servers;
+  }
+  return out;
+}
+
+// withPluginName tags a non-empty plugin artifact content with the plugin's
+// manifest name; empty content is left untouched so it stays skipped
+function withPluginName(content, name) {
+  if (name && isObject(content) && Object.keys(content).length > 0) {
+    content.pluginName = name;
+  }
+  return content;
 }
 
 // --- filesystem (every failure degrades to null/{}) ---------------------------
@@ -116,6 +138,13 @@ function readJSON(path) {
 
 function fileExists(path) {
   return $.NSFileManager.defaultManager.fileExistsAtPath(path);
+}
+
+// pluginNameFrom reads the plugin manifest "name" field (.claude-plugin/plugin.json,
+// falling back to plugin.json); "" when absent
+function pluginNameFrom(installPath) {
+  var manifest = readJSON(installPath + "/.claude-plugin/plugin.json") || readJSON(installPath + "/plugin.json");
+  return isObject(manifest) && typeof manifest.name === "string" ? manifest.name : "";
 }
 
 function getEnv(name) {
@@ -187,14 +216,23 @@ function run() {
         var installPath = install.installPath;
         if (typeof installPath !== "string" || installPath === "") return;
         var mcpFile = installPath + "/.mcp.json";
-        var manifest = installPath + "/.claude-plugin/plugin.json";
-        var legacyManifest = installPath + "/plugin.json";
+        // Plugin MCP tools are named mcp__plugin_<pluginName>_<server>__<tool>,
+        // where pluginName is the manifest "name" field (it can differ from the
+        // cache-dir name and the server key) — ai-dr needs it to parse that form
+        var pluginName = pluginNameFrom(installPath);
+
+        // Full manifest: sent whole (metadata + inline mcpServers, cleaned).
+        // Manifest mcpServers are additive to .mcp.json, so both are emitted.
+        var manifestPath = fileExists(installPath + "/.claude-plugin/plugin.json")
+          ? installPath + "/.claude-plugin/plugin.json"
+          : (fileExists(installPath + "/plugin.json") ? installPath + "/plugin.json" : null);
+        if (manifestPath) {
+          addArtifact("plugin", "claude_plugin_json", manifestPath, manifestArtifactContent(readJSON(manifestPath)));
+        }
+
+        // Dedicated server file; its servers are tagged with the plugin name
         if (fileExists(mcpFile)) {
-          addArtifact("plugin", "claude_mcp_json", mcpFile, serverContent(readJSON(mcpFile)));
-        } else if (fileExists(manifest)) {
-          addArtifact("plugin", "claude_mcp_json", manifest, manifestContent(readJSON(manifest)));
-        } else if (fileExists(legacyManifest)) {
-          addArtifact("plugin", "claude_mcp_json", legacyManifest, manifestContent(readJSON(legacyManifest)));
+          addArtifact("plugin", "claude_mcp_json", mcpFile, withPluginName(serverContent(readJSON(mcpFile)), pluginName));
         }
       });
     }

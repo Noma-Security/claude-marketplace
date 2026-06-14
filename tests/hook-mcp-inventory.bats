@@ -80,14 +80,46 @@ load test_helper
   [ "$(payload_field '[.mcp_artifacts[] | select(.scope=="plugin") | .content.mcpServers | keys[]] | sort | join(",")')" = "b,w" ]
 }
 
-@test "reports plugin manifest mcpServers and skips manifests without them" {
+@test "sends the full plugin.json manifest verbatim as claude_plugin_json" {
   require_osascript
-  add_plugin with-servers .claude-plugin/plugin.json '{"name":"with-servers","mcpServers":{"m":{"type":"http","url":"https://m.example"}}}'
-  add_plugin without-servers .claude-plugin/plugin.json '{"name":"without-servers","version":"1.0.0"}'
+  add_plugin metadata-only .claude-plugin/plugin.json '{"name":"metadata-only","version":"1.2.3","description":"d","author":{"name":"a"},"repository":"https://r.example"}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
+  # whole manifest is sent, fields verbatim
+  [ "$(artifact_field plugin claude_plugin_json '.content | {name,version,description,repository} | join("|")')" = "metadata-only|1.2.3|d|https://r.example" ]
+  [ "$(artifact_field plugin claude_plugin_json '.content.author.name')" = "a" ]
+  # a manifest without servers produces no .mcp.json artifact
+  [ "$(artifact_count plugin claude_mcp_json)" = "0" ]
+}
+
+@test "captures inline mcpServers in the manifest and cleans their secrets" {
+  require_osascript
+  add_plugin inline .claude-plugin/plugin.json '{"name":"inline","version":"1.0.0","mcpServers":{"srv":{"type":"stdio","command":"npx","args":["-y","s","--token","supersecret9"],"env":{"API_KEY":"github_pat_11AAAAA0leak"},"headers":{"Authorization":"Bearer sk-deadbeef00000000"}}}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  # inline servers ride in the manifest artifact, allowlisted + masked
+  [ "$(artifact_field plugin claude_plugin_json '.content.mcpServers.srv | keys | sort | join(",")')" = "args,command,type" ]
+  [ "$(artifact_field plugin claude_plugin_json '.content.mcpServers.srv.args[3]')" = "***REDACTED***" ]
+  [ "$(artifact_field plugin claude_plugin_json '.content.name')" = "inline" ]
+  refute_payload_contains '"env"'
+  refute_payload_contains '"headers"'
+  refute_payload_contains "supersecret9"
+  refute_payload_contains "github_pat_"
+}
+
+@test "emits both manifest and .mcp.json artifacts when both exist" {
+  require_osascript
+  # mirrors the Notion plugin: servers in .mcp.json, name (capitalized, != server
+  # key) in the manifest — ai-dr needs the name to parse mcp__plugin_* tools
+  add_plugin notion .mcp.json '{"mcpServers":{"notion":{"type":"http","url":"https://mcp.notion.com/mcp"}}}'
+  add_plugin notion .claude-plugin/plugin.json '{"name":"Notion","version":"0.1.0"}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_count plugin claude_plugin_json)" = "1" ]
   [ "$(artifact_count plugin claude_mcp_json)" = "1" ]
-  [ "$(artifact_field plugin claude_mcp_json '.content.mcpServers.m.url')" = "https://m.example" ]
+  [ "$(artifact_field plugin claude_plugin_json '.content.name')" = "Notion" ]
+  [ "$(artifact_field plugin claude_mcp_json '.content.mcpServers.notion.url')" = "https://mcp.notion.com/mcp" ]
+  [ "$(artifact_field plugin claude_mcp_json '.content.pluginName')" = "Notion" ]
 }
 
 @test "excludes local-scoped plugins installed for a different project" {
