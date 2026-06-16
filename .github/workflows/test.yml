@@ -24,20 +24,22 @@ jobs:
 
   python:
     name: python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.8', '3.11', '3.13']
-    runs-on: ubuntu-latest
+        # Every Python 3 the official images provide — the inventory is written
+        # to run on all of them (stdlib only, no f-strings/dataclasses). checkout
+        # runs on the host so old images lacking modern node/git are no problem;
+        # the suite runs inside the version-pinned image via docker.
+        python-version: ['3.6', '3.7', '3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Compile (portability gate) and run unit tests
-        run: |
-          python -m py_compile common/noma_inventory/*.py guardrails/scripts/inventory_claude_code.py
-          python -m unittest discover -s tests/python -p 'test_*.py'
+      - name: py_compile + unittest under python ${{ matrix.python-version }}
+        # Same script devs run locally — one source of truth for how the suite
+        # is compiled and run; the matrix above just fans the versions out in
+        # parallel (checkout stays on the host, docker runs the pinned image).
+        run: ./scripts/test-python-matrix.sh "${{ matrix.python-version }}"
 
   test:
     name: bats (${{ matrix.os }})
