@@ -1,14 +1,14 @@
 #!/usr/bin/env bats
 # hook-mcp-inventory.sh — per-file MCP artifact collection on UserPromptSubmit.
-# The inventory is built by mcp-inventory.js via osascript (JXA), so these
-# tests skip where osascript is absent (Linux); the fallback test runs everywhere.
+# The inventory is built by inventory_claude_code.py (any python3), so these
+# tests skip where python3 is absent; the fallback test runs everywhere.
 
 load test_helper
 
 # --- sources ----------------------------------------------------------------
 
 @test "reports user servers from ~/.claude.json mcpServers" {
-  require_osascript
+  require_python3
   write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}},"numStartups":42}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -17,7 +17,7 @@ load test_helper
 }
 
 @test "reports user servers from the ~/.claude.json servers variant" {
-  require_osascript
+  require_python3
   write_home_claude_json '{"servers":{"beta":{"type":"http","url":"https://beta.example"}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -25,7 +25,7 @@ load test_helper
 }
 
 @test "never applies the bare-map heuristic to ~/.claude.json top level" {
-  require_osascript
+  require_python3
   # an unrelated top-level object that merely looks like a server config
   write_home_claude_json '{"cachedDynamicConfigs":{"type":"remote","url":"https://internal.example"}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -35,7 +35,7 @@ load test_helper
 }
 
 @test "reports local scope from the projects entry with only its server map" {
-  require_osascript
+  require_python3
   write_home_claude_json "$(jq -nc --arg p "$TEST_PROJECT" '{projects: {($p): {
     mcpServers: {gh: {type: "stdio", command: "docker", args: ["run", "-i"]}},
     enabledMcpjsonServers: ["gh"],
@@ -53,7 +53,7 @@ load test_helper
 }
 
 @test "reports the standalone ~/.claude/mcp.json (servers key, normalized)" {
-  require_osascript
+  require_python3
   write_user_mcp_json '{"servers":{"logger":{"type":"http","url":"https://logger.example"}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -62,7 +62,7 @@ load test_helper
 }
 
 @test "reports the project .mcp.json" {
-  require_osascript
+  require_python3
   write_project_mcp_json '{"mcpServers":{"proj":{"type":"stdio","command":"npx","args":["-y","proj-server"]}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -71,7 +71,7 @@ load test_helper
 }
 
 @test "reports plugin .mcp.json in both wrapped and bare shapes" {
-  require_osascript
+  require_python3
   add_plugin wrapped .mcp.json '{"mcpServers":{"w":{"type":"http","url":"https://w.example"}}}'
   add_plugin bare .mcp.json '{"b":{"type":"http","url":"https://b.example"}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -81,7 +81,7 @@ load test_helper
 }
 
 @test "sends the full plugin.json manifest verbatim as claude_plugin_json" {
-  require_osascript
+  require_python3
   add_plugin metadata-only .claude-plugin/plugin.json '{"name":"metadata-only","version":"1.2.3","description":"d","author":{"name":"a"},"repository":"https://r.example"}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -93,7 +93,7 @@ load test_helper
 }
 
 @test "captures inline mcpServers in the manifest and cleans their secrets" {
-  require_osascript
+  require_python3
   add_plugin inline .claude-plugin/plugin.json '{"name":"inline","version":"1.0.0","mcpServers":{"srv":{"type":"stdio","command":"npx","args":["-y","s","--token","supersecret9"],"env":{"API_KEY":"github_pat_11AAAAA0leak"},"headers":{"Authorization":"Bearer sk-deadbeef00000000"}}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -108,7 +108,7 @@ load test_helper
 }
 
 @test "emits both manifest and .mcp.json artifacts when both exist" {
-  require_osascript
+  require_python3
   # mirrors the Notion plugin: servers in .mcp.json, name (capitalized, != server
   # key) in the manifest — ai-dr needs the name to parse mcp__plugin_* tools
   add_plugin notion .mcp.json '{"mcpServers":{"notion":{"type":"http","url":"https://mcp.notion.com/mcp"}}}'
@@ -123,7 +123,7 @@ load test_helper
 }
 
 @test "excludes local-scoped plugins installed for a different project" {
-  require_osascript
+  require_python3
   add_plugin other-project .mcp.json '{"mcpServers":{"other":{"type":"http","url":"https://other.example"}}}' local /somewhere/else
   add_plugin this-project .mcp.json '{"mcpServers":{"mine":{"type":"http","url":"https://mine.example"}}}' local "$TEST_PROJECT"
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -133,7 +133,7 @@ load test_helper
 }
 
 @test "reports managed-mcp.json when present (requires sudo, auto-skips)" {
-  require_osascript
+  require_python3
   if [ -e /etc/claude-code/managed-mcp.json ]; then
     skip "real managed-mcp.json present on this machine"
   fi
@@ -155,7 +155,7 @@ load test_helper
 # --- settings files ---------------------------------------------------------
 
 @test "settings files are never read or reported, even when they hold MCP lists" {
-  require_osascript
+  require_python3
   write_settings "$TEST_HOME/.claude/settings.json" '{"disabledMcpjsonServers":["dropped"],"env":{"FOO":"bar"}}'
   write_settings "$TEST_PROJECT/.claude/settings.json" '{"enabledMcpjsonServers":["kept"]}'
   write_settings "$TEST_PROJECT/.claude/settings.local.json" '{"disabledMcpjsonServers":["x"]}'
@@ -170,7 +170,7 @@ load test_helper
 # --- privacy / masking ------------------------------------------------------
 
 @test "drops env and headers entirely, allowlisting only identity fields" {
-  require_osascript
+  require_python3
   write_project_mcp_json '{"mcpServers":{"gh":{
     "type": "stdio", "command": "docker", "args": ["run"],
     "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_11AAAAA0secretsecret"},
@@ -188,7 +188,7 @@ load test_helper
 }
 
 @test "masks secret-looking values inside url, command and args" {
-  require_osascript
+  require_python3
   write_project_mcp_json '{"mcpServers":{"evil":{
     "type": "stdio",
     "command": "npx",
@@ -207,7 +207,7 @@ load test_helper
 # --- payload shape & fallbacks ----------------------------------------------
 
 @test "preserves the original event and appends artifacts plus host identity" {
-  require_osascript
+  require_python3
   write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
@@ -220,7 +220,7 @@ load test_helper
 }
 
 @test "empty sandbox yields an empty artifact list without crashing" {
-  require_osascript
+  require_python3
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
   [ "$(payload_field '.mcp_artifacts')" = "[]" ]
@@ -228,7 +228,7 @@ load test_helper
 }
 
 @test "malformed stdin degrades to a fallback envelope" {
-  require_osascript
+  require_python3
   run_hook hook-mcp-inventory.sh 'this is not json {'
   [ "$status" -eq 0 ]
   [ "$(payload_field '.hook_event_name')" = "UserPromptSubmit" ]
@@ -236,20 +236,23 @@ load test_helper
   [ "$(payload_field '.mcp_artifacts | type')" = "array" ]
 }
 
-@test "inventory needs nothing beyond osascript and the base utilities" {
-  require_osascript
-  # PATH sandbox with osascript but deliberately no jq: full inventory expected
+@test "inventory needs nothing beyond python3 and the base utilities" {
+  require_python3
+  # PATH sandbox with python3 but deliberately no jq: full inventory expected
   write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
-  run_hook_sandboxed hook-mcp-inventory.sh "$(default_event)" cat sed dirname hostname whoami osascript
+  run_hook_sandboxed hook-mcp-inventory.sh "$(default_event)" cat sed dirname hostname whoami uname python3
   [ "$status" -eq 0 ]
   [ "$(artifact_field user claude_json '.content.mcpServers.alpha.url')" = "https://alpha.example" ]
 }
 
-@test "osascript failure (missing mcp-inventory.js) falls back silently too" {
-  require_osascript
+@test "python3 failure (missing inventory_claude_code.py) falls back silently too" {
+  require_python3
   local dir
   dir="$(mktemp -d -p "$TEST_HOME")"
-  cp "$SCRIPTS_DIR/hook-mcp-inventory.sh" "$SCRIPTS_DIR/common.sh" "$dir/"
+  mkdir -p "$dir/common"
+  cp "$SCRIPTS_DIR/hook-mcp-inventory.sh" "$dir/"
+  cp "$SCRIPTS_DIR/common/common.sh" "$dir/common/"
+  # deliberately omit inventory_claude_code.py: python3 cannot build the inventory
   run bash -c 'printf "%s" "$1" | HOME="$2" "$3" "$4"' _ \
     "$(default_event)" "$TEST_HOME" "$TEST_SHELL_BIN" "$dir/hook-mcp-inventory.sh"
   [ "$status" -eq 0 ]
@@ -259,7 +262,7 @@ load test_helper
   [ "$(printf '%s' "$output" | jq -r 'has("mcp_artifacts")')" = "false" ]
 }
 
-@test "without osascript falls back to plain event forwarding, completely silently" {
+@test "without python3 falls back to plain event forwarding, completely silently" {
   write_home_claude_json '{"mcpServers":{"alpha":{"type":"http","url":"https://alpha.example"}}}'
   run_hook_sandboxed hook-mcp-inventory.sh "$(default_event)" cat sed dirname hostname whoami
   [ "$status" -eq 0 ]

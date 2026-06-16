@@ -12,7 +12,7 @@ load test_helper
 }
 
 @test "hook scripts pass bash -n" {
-  bash -n "$SCRIPTS_DIR/common.sh"
+  bash -n "$SCRIPTS_DIR/common/common.sh"
   bash -n "$SCRIPTS_DIR/hook-curl.sh"
   bash -n "$SCRIPTS_DIR/hook-mcp-inventory.sh"
 }

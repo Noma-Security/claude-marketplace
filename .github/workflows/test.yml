@@ -12,7 +12,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint hook scripts and test helpers
-        run: shellcheck -x -P SCRIPTDIR guardrails/scripts/*.sh tests/test_helper.bash
+        run: shellcheck -x -P SCRIPTDIR common/*.sh scripts/*.sh guardrails/scripts/*.sh guardrails/scripts/common/*.sh tests/test_helper.bash
+
+  common-sync:
+    name: common vendored copies in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check vendored common/ has no drift
+        run: ./scripts/sync-common.sh --check
+
+  python:
+    name: python ${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.11', '3.13']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile (portability gate) and run unit tests
+        run: |
+          python -m py_compile common/noma_inventory/*.py guardrails/scripts/inventory_claude_code.py
+          python -m unittest discover -s tests/python -p 'test_*.py'
 
   test:
     name: bats (${{ matrix.os }})

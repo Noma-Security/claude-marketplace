@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# shellcheck source=common.sh
-. "$(dirname "$0")/common.sh"
+# shellcheck source=common/common.sh
+. "$(dirname "$0")/common/common.sh"
 
 INPUT=$(cat)
 

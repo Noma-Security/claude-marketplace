@@ -30,10 +30,10 @@ teardown() {
   fi
 }
 
-# Skip tests that exercise the inventory builder where osascript is absent
-# (the inventory is macOS-only for now)
-require_osascript() {
-  command -v osascript &>/dev/null || skip "osascript not available (inventory is macOS-only)"
+# Skip inventory-builder tests where python3 is absent. The inventory now runs
+# on any python3 (macOS + Linux); a machine without one forwards plainly.
+require_python3() {
+  command -v python3 &>/dev/null || skip "python3 not available"
 }
 
 # --- running hooks ----------------------------------------------------------
