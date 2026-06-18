@@ -12,7 +12,7 @@ With Claude Code Hooks enabled, Noma acts as a security gatekeeper for the follo
 
 - **Shell execution**: Prevent unauthorized terminal commands or malicious script injections
 - **MCP tool execution**: Governs Model Context Protocol interactions and unauthorized tool use
-- **MCP server inventory** (macOS): On every prompt, sends the MCP server configuration files as separate per-scope artifacts (local, project, user, plugin, managed); the merged per-session inventory is reconstructed by Noma server-side, and mid-session changes (plugin installs, `/reload-plugins`, `claude mcp add`) are picked up by the next prompt. Only server identity fields (`type`, `url`, `command`, `args`) are sent per server, with secret-looking values masked — `env`, `headers`, and all other fields never leave your machine. Built on `osascript`, which ships with every macOS — no extra dependencies; on Linux this feature is currently skipped (all other protections are unaffected)
+- **MCP server inventory** (macOS & Linux): On every prompt, sends the MCP server configuration files as separate per-scope artifacts (local, project, user, plugin, managed); the merged per-session inventory is reconstructed by Noma server-side, and mid-session changes (plugin installs, `/reload-plugins`, `claude mcp add`) are picked up by the next prompt. Only server identity fields (`type`, `url`, `command`, `args`) are sent per server, with secret-looking values masked — `env`, `headers`, and all other fields never leave your machine. Built in dependency-free Python (standard library only, runs on any `python3`); if no `python3` is available the prompt is still forwarded, just without the inventory (all other protections are unaffected)
 - **File reads**: Protects sensitive local data (e.g., `.env` files, SSH keys) from being indexed or sent to the LLM
 - **User prompt submission**: Scans and filters sensitive data, PCI, PII, PHI before it leaves your local environment
 
@@ -21,7 +21,7 @@ With Claude Code Hooks enabled, Noma acts as a security gatekeeper for the follo
 - **Claude Code v2.0.12+**: Ensure you are running a supported version of the CLI
 - **Noma API Key**: Request an API Key for this plugin from your Noma Technical Account manager (Note: This is not an API Key that you create within the Noma Console)
 - **Supported OS**: macOS, Linux, or Windows
-  - **macOS / Linux**: requires `bash` and `curl` (both preinstalled on macOS; available by default on most Linux distributions). The MCP server inventory uses the built-in `osascript` (present on every macOS); on Linux only that feature is skipped
+  - **macOS / Linux**: requires `bash` and `curl` (both preinstalled on macOS; available by default on most Linux distributions). The MCP server inventory additionally uses `python3` (standard library only — no `pip` packages), preinstalled on macOS and most Linux distributions; if `python3` is absent only the inventory is skipped, every other protection still runs
   - **Windows**: requires Windows PowerShell 5.1 or later (preinstalled on Windows 10 / 11)
 
 ## Installation
@@ -40,7 +40,7 @@ The Noma marketplace ships **two plugins** — choose the one matching your oper
 
 | Plugin | OS | Runtime | Hook Scripts |
 |---|---|---|---|
-| `guardrails` | macOS, Linux | bash + curl | `hook-curl.sh`, `hook-mcp-inventory.sh` (+ `mcp-inventory.js` via macOS's built-in `osascript`) |
+| `guardrails` | macOS, Linux | bash + curl (+ `python3` for inventory) | `hook-curl.sh`, `hook-mcp-inventory.sh` (+ `inventory_claude_code.py`) |
 | `guardrails-windows` | Windows | PowerShell 5.1+ | `hook-curl.ps1` |
 
 #### macOS / Linux
@@ -192,14 +192,35 @@ If none are configured, hooks will exit with `NOMA_API_KEY not found...`. Use on
 
 ## Development
 
-The bash hook scripts are covered by a [bats-core](https://github.com/bats-core/bats-core) test suite that runs hermetically against a sandbox `HOME` (no network, no access to your real Claude Code config):
+### Layout
+
+The hook entry points live in each plugin's `scripts/` directory. The MCP-inventory logic is split into a **generic, vendor-agnostic Python package** and a **plugin-local discoverer**:
+
+- `common/noma_inventory/` — the generic engine (redaction, the `type/url/command/args` allowlist, artifact schema, stdin/stdout I/O). Standard library only, written to run on **any** `python3` — no third-party packages, no `pip`.
+- `guardrails/scripts/inventory_claude_code.py` — the Claude Code + macOS/Linux specifics (which files at which scopes); it calls the generic engine.
+- `common/` is the single source of truth and is **vendored** (copied) into each plugin's `scripts/common/` by `scripts/sync-common.sh`, because Claude Code installs each plugin directory standalone. After editing anything in `common/`, re-vendor it with `scripts/sync-common.sh`; CI fails if a copy has drifted (`scripts/sync-common.sh --check`).
+
+The retired `osascript`/JXA implementation is kept for reference under `legacy/`.
+
+### Tests
+
+Two layers — bash integration (bats) and Python units (stdlib `unittest`):
 
 ```bash
-brew install bats-core jq   # jq is used by test assertions only, never by the hooks
+# Integration — the bash hooks end-to-end against a sandbox HOME (no network,
+# no access to your real Claude Code config). jq is used by assertions only.
+brew install bats-core jq          # macOS;  Linux: apt-get install -y bats jq
 bats tests/
+
+# Units — the Python engine + discoverer, standard-library unittest (no pip):
+python3 -m unittest discover -s tests/python -p 'test_*.py'
+
+# The Python suite across every supported version (3.6 – 3.14) via Docker:
+scripts/test-python-matrix.sh             # all versions
+scripts/test-python-matrix.sh 3.6 3.14    # a subset
 ```
 
-CI (GitHub Actions) runs the suite on Ubuntu and macOS — the macOS job uses the stock `/bin/bash` 3.2 that real plugin users run — plus `shellcheck` on all scripts.
+CI (GitHub Actions) runs: `shellcheck` on all shell scripts; the `bats` suite on Ubuntu **and** macOS (the macOS job uses the stock `/bin/bash` 3.2 that real plugin users run — the inventory now runs on both); the Python unit suite on **every Python 3 from 3.6 to 3.14**; and a drift check that the vendored `common/` copies match the source.
 
 ## Support
 
