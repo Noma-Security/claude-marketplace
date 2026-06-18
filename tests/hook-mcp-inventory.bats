@@ -172,7 +172,7 @@ load test_helper
 
 @test "reports remote-settings.json servers, taking the mcpServers block only" {
   require_python3
-  write_settings "$TEST_HOME/.claude/remote-settings.json" '{"mcpServers":{"corp":{"type":"http","url":"https://remote.example","headers":{"Authorization":"Bearer sk-deadbeef00000000"}}},"env":{"DD_API_KEY":"f05ff4225ab5abd6bfdc"}}'
+  write_settings "$TEST_HOME/.claude/remote-settings.json" '{"mcpServers":{"corp":{"type":"http","url":"https://remote.example","headers":{"Authorization":"Bearer sk-deadbeef00000000"}}},"env":{"DD_API_KEY":"cafebabecafebabecafebabecafebabe"}}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
   [ "$status" -eq 0 ]
   [ "$(artifact_field remote claude_settings_json '.content.mcpServers.corp.url')" = "https://remote.example" ]

@@ -195,7 +195,7 @@ class TestDiscoverClaudeCode(unittest.TestCase):
                 "type": "http", "url": "https://remote.example",
                 "headers": {"Authorization": "Bearer sk-deadbeef00000000"},
             }},
-            "env": {"DD_API_KEY": "f05ff4225ab5abd6bfdc425813fb1dfd"},
+            "env": {"DD_API_KEY": "cafebabecafebabecafebabecafebabe"},
         }))
         p = self.run_inv()
         a = artifact(p, "remote", "claude_settings_json")
@@ -203,7 +203,7 @@ class TestDiscoverClaudeCode(unittest.TestCase):
         self.assertEqual(a["content"]["mcpServers"]["corp"]["url"], "https://remote.example")
         self.assertEqual(a["path"], os.path.join(self.home, ".claude", "remote-settings.json"))
         blob = json.dumps(p)
-        for leak in ("DD_API_KEY", "f05ff4225ab5abd6bfdc425813fb1dfd", '"env"', '"headers"', "sk-deadbeef"):
+        for leak in ("DD_API_KEY", "cafebabecafebabecafebabecafebabe", '"env"', '"headers"', "sk-deadbeef"):
             self.assertNotIn(leak, blob)
 
     def test_remote_settings_no_servers_noop(self):
