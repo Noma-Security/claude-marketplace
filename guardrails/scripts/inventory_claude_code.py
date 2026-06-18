@@ -27,6 +27,14 @@ MANAGED_MCP_PATHS = [
     "/etc/claude-code/managed-mcp.json",
 ]
 
+# Enterprise managed-settings.json, same OS precedence as MANAGED_MCP_PATHS. Only
+# its mcpServers block is taken (the file otherwise holds policy/env). Repointable
+# for tests.
+MANAGED_SETTINGS_PATHS = [
+    "/Library/Application Support/ClaudeCode/managed-settings.json",
+    "/etc/claude-code/managed-settings.json",
+]
+
 
 def plugin_name_from(install_path):
     """Plugin manifest "name" (.claude-plugin/plugin.json, then plugin.json).
@@ -97,14 +105,10 @@ def discover_claude_code(home, cwd):
     if servers.is_object(claude_json):
         # User scope: explicit keys only — the top level holds unrelated and
         # sensitive state, so the bare-map heuristic must not run here.
-        user_servers = claude_json.get("mcpServers")
-        if not servers.is_object(user_servers):
-            user_servers = claude_json.get("servers")
-        if not servers.is_object(user_servers):
-            user_servers = {}
         candidates.append((
             "user", "claude_json", claude_json_path,
-            servers.wrap_servers(servers.clean_map(user_servers)),
+            servers.wrap_servers(servers.clean_map(
+                servers.explicit_servers(claude_json))),
         ))
 
         # Local scope: this project's entry — only its server map; the entry
@@ -143,6 +147,28 @@ def discover_claude_code(home, cwd):
             candidates.append((
                 "managed", "claude_managed_mcp_json", p,
                 servers.server_content(engine.read_json(p)),
+            ))
+            break
+
+    # Settings files. These hold unrelated/secret state (env, tokens), so take
+    # the explicit mcpServers/servers key only — never the bare-map heuristic. No
+    # servers => empty content => engine drops the artifact (the common case:
+    # these files usually carry only policy/env, so this is a no-op).
+    #
+    # Server-managed "remote" settings (~/.claude/remote-settings.json) are the
+    # highest-precedence tier; enterprise "managed" settings sit one below.
+    remote_settings = home + "/.claude/remote-settings.json"
+    candidates.append((
+        "remote", "claude_settings_json", remote_settings,
+        servers.wrap_servers(servers.clean_map(
+            servers.explicit_servers(engine.read_json(remote_settings)))),
+    ))
+    for p in MANAGED_SETTINGS_PATHS:
+        if engine.file_exists(p):
+            candidates.append((
+                "managed", "claude_settings_json", p,
+                servers.wrap_servers(servers.clean_map(
+                    servers.explicit_servers(engine.read_json(p)))),
             ))
             break
 

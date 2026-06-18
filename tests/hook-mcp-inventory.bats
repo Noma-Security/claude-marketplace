@@ -154,9 +154,11 @@ load test_helper
 
 # --- settings files ---------------------------------------------------------
 
-@test "settings files are never read or reported, even when they hold MCP lists" {
+@test "ordinary settings.json / settings.local.json are never read, even with an mcpServers block" {
   require_python3
-  write_settings "$TEST_HOME/.claude/settings.json" '{"disabledMcpjsonServers":["dropped"],"env":{"FOO":"bar"}}'
+  # only remote-settings.json / managed-settings.json feed the inventory; the
+  # ordinary user/project settings files stay unread — mcpServers block included.
+  write_settings "$TEST_HOME/.claude/settings.json" '{"disabledMcpjsonServers":["dropped"],"mcpServers":{"x":{"url":"https://nope.example"}},"env":{"FOO":"bar"}}'
   write_settings "$TEST_PROJECT/.claude/settings.json" '{"enabledMcpjsonServers":["kept"]}'
   write_settings "$TEST_PROJECT/.claude/settings.local.json" '{"disabledMcpjsonServers":["x"]}'
   run_hook hook-mcp-inventory.sh "$(default_event)"
@@ -164,7 +166,30 @@ load test_helper
   [ "$(artifact_count '' claude_settings_json)" = "0" ]
   refute_payload_contains "claude_settings_json"
   refute_payload_contains "disabledMcpjsonServers"
+  refute_payload_contains "nope.example"
   refute_payload_contains '"FOO"'
+}
+
+@test "reports remote-settings.json servers, taking the mcpServers block only" {
+  require_python3
+  write_settings "$TEST_HOME/.claude/remote-settings.json" '{"mcpServers":{"corp":{"type":"http","url":"https://remote.example","headers":{"Authorization":"Bearer sk-deadbeef00000000"}}},"env":{"DD_API_KEY":"f05ff4225ab5abd6bfdc"}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_field remote claude_settings_json '.content.mcpServers.corp.url')" = "https://remote.example" ]
+  [ "$(artifact_field remote claude_settings_json '.path')" = "$TEST_HOME/.claude/remote-settings.json" ]
+  refute_payload_contains "DD_API_KEY"
+  refute_payload_contains '"env"'
+  refute_payload_contains '"headers"'
+  refute_payload_contains "sk-deadbeef"
+}
+
+@test "remote-settings.json without an mcpServers block yields no artifact" {
+  require_python3
+  write_settings "$TEST_HOME/.claude/remote-settings.json" '{"env":{"DD_API_KEY":"secret123"},"permissions":{"defaultMode":"auto"}}'
+  run_hook hook-mcp-inventory.sh "$(default_event)"
+  [ "$status" -eq 0 ]
+  [ "$(artifact_count remote claude_settings_json)" = "0" ]
+  refute_payload_contains "DD_API_KEY"
 }
 
 # --- privacy / masking ------------------------------------------------------

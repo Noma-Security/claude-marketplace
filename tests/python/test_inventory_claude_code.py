@@ -172,12 +172,64 @@ class TestDiscoverClaudeCode(unittest.TestCase):
         self.assertEqual(artifact(p, "managed", "claude_managed_mcp_json")["content"]["mcpServers"]["corp"]["url"],
                          "https://mcp.corp.example")
 
-    def test_settings_files_never_read(self):
+    def test_ordinary_settings_files_never_read(self):
+        # Only remote-settings.json / managed-settings.json feed the inventory;
+        # the ordinary user/project settings files are still never read — not
+        # even an mcpServers block they might carry.
         write_file(os.path.join(self.home, ".claude", "settings.json"),
-                   '{"disabledMcpjsonServers":["dropped"],"env":{"FOO":"bar"}}')
+                   '{"disabledMcpjsonServers":["dropped"],"mcpServers":{"x":{"url":"https://nope.example"}},"env":{"FOO":"bar"}}')
+        write_file(os.path.join(self.home, ".claude", "settings.local.json"),
+                   '{"enabledMcpjsonServers":["connect-apps"]}')
+        write_file(os.path.join(self.proj, ".claude", "settings.json"),
+                   '{"enableAllProjectMcpServers":true}')
         p = self.run_inv()
         self.assertEqual(count(p, kind="claude_settings_json"), 0)
-        self.assertNotIn("disabledMcpjsonServers", json.dumps(p))
+        blob = json.dumps(p)
+        for leak in ("disabledMcpjsonServers", "nope.example", "connect-apps", "enableAllProjectMcpServers"):
+            self.assertNotIn(leak, blob)
+
+    def test_remote_settings_mcpservers(self):
+        # remote-settings.json: take mcpServers only; env/headers/secrets stay home.
+        write_file(os.path.join(self.home, ".claude", "remote-settings.json"), json.dumps({
+            "mcpServers": {"corp": {
+                "type": "http", "url": "https://remote.example",
+                "headers": {"Authorization": "Bearer sk-deadbeef00000000"},
+            }},
+            "env": {"DD_API_KEY": "f05ff4225ab5abd6bfdc425813fb1dfd"},
+        }))
+        p = self.run_inv()
+        a = artifact(p, "remote", "claude_settings_json")
+        self.assertIsNotNone(a)
+        self.assertEqual(a["content"]["mcpServers"]["corp"]["url"], "https://remote.example")
+        self.assertEqual(a["path"], os.path.join(self.home, ".claude", "remote-settings.json"))
+        blob = json.dumps(p)
+        for leak in ("DD_API_KEY", "f05ff4225ab5abd6bfdc425813fb1dfd", '"env"', '"headers"', "sk-deadbeef"):
+            self.assertNotIn(leak, blob)
+
+    def test_remote_settings_no_servers_noop(self):
+        # The common case (this machine): only env/policy, no mcpServers -> no artifact.
+        write_file(os.path.join(self.home, ".claude", "remote-settings.json"),
+                   '{"env":{"DD_API_KEY":"secret123"},"permissions":{"defaultMode":"auto"}}')
+        p = self.run_inv()
+        self.assertEqual(count(p, "remote", "claude_settings_json"), 0)
+        blob = json.dumps(p)
+        self.assertNotIn("DD_API_KEY", blob)
+        self.assertNotIn("secret123", blob)
+
+    def test_managed_settings_mcpservers(self):
+        managed = os.path.join(self.tmp, "managed-settings.json")
+        write_file(managed, json.dumps({
+            "mcpServers": {"corp-policy": {"type": "http", "url": "https://managed-settings.example"}},
+            "permissions": {"defaultMode": "deny"},
+        }))
+        saved = cc.MANAGED_SETTINGS_PATHS
+        cc.MANAGED_SETTINGS_PATHS = [managed]
+        self.addCleanup(lambda: setattr(cc, "MANAGED_SETTINGS_PATHS", saved))
+        p = self.run_inv()
+        a = artifact(p, "managed", "claude_settings_json")
+        self.assertIsNotNone(a)
+        self.assertEqual(a["content"]["mcpServers"]["corp-policy"]["url"], "https://managed-settings.example")
+        self.assertNotIn("defaultMode", json.dumps(p))
 
     def test_empty_home(self):
         p = self.run_inv()

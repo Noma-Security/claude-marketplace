@@ -37,6 +37,21 @@ def norm(doc):
     return bare
 
 
+def explicit_servers(doc):
+    """mcpServers/servers by explicit key only — never the bare-map heuristic.
+
+    For files whose top level holds unrelated and sensitive state (settings.json's
+    env/tokens, ~/.claude.json): norm()'s bare-map fallback must not run here, or
+    secrets could be mistaken for server configs.
+    """
+    if not is_object(doc):
+        return {}
+    m = doc.get("mcpServers")
+    if not is_object(m):
+        m = doc.get("servers")
+    return m if is_object(m) else {}
+
+
 def clean_server(cfg):
     """Per-server allowlist: type/url/command/args only, strings sanitized."""
     if not is_object(cfg):
