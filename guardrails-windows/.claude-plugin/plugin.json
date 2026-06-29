@@ -1,6 +1,6 @@
 {
   "name": "guardrails-windows",
   "description": "Noma AIDR guardrails for Claude Code on Windows",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": { "name": "Noma Security" }
 }

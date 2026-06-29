@@ -68,7 +68,7 @@ try {
 try {
     $response = Invoke-WebRequest -Method Post `
         -Uri "$nomaApiUrl/claude/v1/hooks" `
-        -Headers @{ 'Authorization' = "Bearer $nomaApiKey"; 'x-noma-key' = "Bearer $nomaApiKey" } `
+        -Headers @{ 'x-noma-key' = "Bearer $nomaApiKey" } `
         -ContentType 'application/json' `
         -Body $payload `
         -TimeoutSec 10 `
