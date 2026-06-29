@@ -50,6 +50,7 @@ fi
 RESPONSE=$(curl -fsS --max-time 10 \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${NOMA_API_KEY}" \
+  -H "x-noma-key: Bearer ${NOMA_API_KEY}" \
   -d "$INPUT" \
   "${NOMA_API_URL}/claude/v1/hooks" 2>&1) || { echo "[Noma] $RESPONSE" >&2; exit 1; }
 
